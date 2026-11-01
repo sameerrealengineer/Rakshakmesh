@@ -1,0 +1,66 @@
+name: Android build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  relay-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Relay unit tests
+        working-directory: relay
+        run: python -m unittest -v
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Core tests, debug APK, lint
+        run: ./gradlew --stacktrace :core:test :app:assembleDebug :app:lintDebug
+      - name: "AT-18: no API keys inside the APK"
+        run: |
+          set -e
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          mkdir -p /tmp/apk && unzip -q -o "$APK" -d /tmp/apk
+          # Google API keys, OpenAI/Anthropic-style secrets, Sarvam subscription header with a value.
+          if grep -raEo 'AIza[0-9A-Za-z_-]{35}|sk-[A-Za-z0-9_-]{20,}|api-subscription-key[^a-z]{0,4}[A-Za-z0-9_-]{16,}' /tmp/apk; then
+            echo "::error::Possible API key found inside the APK"; exit 1
+          fi
+          echo "No API keys found in $APK ($(du -h "$APK" | cut -f1))"
+      - name: "Permissions check: no SEND_SMS / READ_SMS / CALL_PHONE / background location"
+        run: |
+          MANIFEST=app/build/intermediates/merged_manifests/debug/processDebugManifest/AndroidManifest.xml
+          [ -f "$MANIFEST" ] || MANIFEST=$(find app/build/intermediates -name AndroidManifest.xml -path '*merged_manifest*' | head -1)
+          if grep -E 'permission.(SEND_SMS|READ_SMS|RECEIVE_SMS|CALL_PHONE|ACCESS_BACKGROUND_LOCATION)"' "$MANIFEST"; then
+            echo "::error::Forbidden permission in merged manifest"; exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rakshakmesh-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reports
+          path: |
+            app/build/reports/
+            core/build/reports/
+          if-no-files-found: ignore

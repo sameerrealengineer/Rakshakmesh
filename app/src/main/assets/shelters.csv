@@ -1,0 +1,4 @@
+# RakshakMesh shelter list. Shipped EMPTY on purpose: add only records from OSDMA / the district
+# emergency officer / district DM plans that have been checked. Rows without source and
+# verified_on are rejected and never shown (PRD 5.4). See docs/DATA.md.
+id,name,name_odia,village,block,district,lat,lon,capacity,type,source,verified_on

@@ -1,0 +1,46 @@
+name: Alert relay (SACHET -> GitHub Pages)
+
+# Builds one small JSON file per Odisha district from NDMA SACHET CAP alerts and publishes it on
+# GitHub Pages, where the app downloads it. Setup: repo Settings -> Pages -> Source: GitHub Actions.
+# Scheduled runs only happen on the default branch.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: alert-relay
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Tests
+        working-directory: relay
+        run: python -m unittest
+      - name: Fetch SACHET and build district files
+        # Optional repo variable SACHET_FEEDS: space-separated RSS URLs to use instead of the default.
+        env:
+          SACHET_FEEDS: ${{ vars.SACHET_FEEDS }}
+        run: python relay/fetch_sachet.py --out site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>1004</identifier><sender>cwc</sender><sent>2026-10-27T06:00:00+05:30</sent>
+  <status>Actual</status><msgType>Alert</msgType><scope>Public</scope>
+  <info><language>en</language><category>Met</category><event>Flood</event>
+    <urgency>Expected</urgency><severity>Extreme</severity><certainty>Likely</certainty>
+    <expires>2026-10-29T05:00:00+05:30</expires><senderName>CWC</senderName>
+    <headline>River Mahanadi above danger level</headline>
+    <area><areaDesc>Lower Mahanadi basin</areaDesc>
+      <polygon>20.0,85.5 20.0,86.5 21.0,86.5 21.0,85.5 20.0,85.5</polygon></area></info>
+</alert>

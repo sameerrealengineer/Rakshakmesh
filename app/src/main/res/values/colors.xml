@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#FFFFFBF7</color>
+    <color name="sos_red">#FFC62828</color>
+    <color name="icon_bg">#FFC62828</color>
+</resources>

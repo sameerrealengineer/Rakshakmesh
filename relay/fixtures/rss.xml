@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>SACHET</title>
+<item><title>Cyclone</title><link>https://example.test/cap/cyclone.xml</link></item>
+<item><title>Rain Kerala</title><link>https://example.test/cap/kerala.xml</link></item>
+<item><title>Old</title><link>https://example.test/cap/expired.xml</link></item>
+<item><title>Polygon</title><link>https://example.test/cap/polygon.xml</link></item>
+<item><title>Broken</title><link>https://example.test/cap/missing.xml</link></item>
+</channel></rss>

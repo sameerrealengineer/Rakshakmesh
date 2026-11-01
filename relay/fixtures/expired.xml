@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>1003</identifier><sender>x</sender><sent>2026-10-20T05:00:00+05:30</sent>
+  <status>Actual</status><msgType>Alert</msgType><scope>Public</scope>
+  <info><language>en-IN</language><category>Met</category><event>Rain</event>
+    <urgency>Expected</urgency><severity>Extreme</severity><certainty>Likely</certainty>
+    <expires>2026-10-21T05:00:00+05:30</expires><headline>Old</headline>
+    <area><areaDesc>Puri</areaDesc></area></info>
+</alert>

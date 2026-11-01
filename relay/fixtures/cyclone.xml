@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alert xmlns="urn:oasis:names:tc:emergency:cap:1.2">
+  <identifier>1001</identifier><sender>imd@imd.gov.in</sender>
+  <sent>2026-10-27T05:00:00+05:30</sent><status>Actual</status><msgType>Alert</msgType><scope>Public</scope>
+  <info>
+    <language>en-IN</language><category>Met</category><event>Cyclone</event>
+    <urgency>Immediate</urgency><severity>Severe</severity><certainty>Likely</certainty>
+    <effective>2026-10-27T05:00:00+05:30</effective><expires>2026-10-28T05:00:00+05:30</expires>
+    <senderName>IMD Bhubaneswar</senderName>
+    <headline>Red alert: extremely heavy rainfall, gusty winds 90-100 km/h</headline>
+    <description>Very severe cyclonic storm likely to cross the coast.</description>
+    <instruction>Move to cyclone shelters when told by officials.</instruction>
+    <area><areaDesc>Ganjam, Gajapati and Puri districts of Odisha</areaDesc></area>
+  </info>
+  <info>
+    <language>or-IN</language><category>Met</category><event>Cyclone</event>
+    <urgency>Immediate</urgency><severity>Severe</severity><certainty>Likely</certainty>
+    <expires>2026-10-28T05:00:00+05:30</expires>
+    <description>ଅତି ପ୍ରବଳ ବାତ୍ୟା ଉପକୂଳ ଅତିକ୍ରମ କରିପାରେ।</description>
+    <area><areaDesc>ଗଞ୍ଜାମ</areaDesc></area>
+  </info>
+</alert>
