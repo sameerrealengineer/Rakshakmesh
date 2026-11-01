@@ -5,25 +5,19 @@ warning means and where the nearest shelter is. After landfall it lets a family 
 "I am safe" by **SMS**, even on one bar of 2G. Internet and AI are optional extras, never on the
 SOS path. Product spec: [docs/PRD_v2.0.md](docs/PRD_v2.0.md).
 
-## What is in this build (PRD P0 + P1)
+## What the app does
 
-| Feature | PRD | Works offline |
-| --- | --- | --- |
-| SOS: 112 / 1070 / 1077 dial buttons, 3-choice SOS, one-shot GPS (20 s timeout → last fix with age → saved landmark), ≤160-char ASCII SMS to up to 5 family + 1 volunteer, saved to an outbox first | FR-SOS-01..08 | Yes |
-| Outbox with separate states: saved / handed to SMS app / sent / delivered / failed. Prompts to send when the app reopens out of airplane mode | FR-SOS-07 | Yes |
-| Official alerts inbox for the user's district (from the relay below), cached, with "last updated … may be old"; red/orange action card on Home | FR-ALR-01..05 | Cached copy |
-| Nearest 3 verified shelters with km + compass direction; "No verified shelter — call 1077" otherwise; MapLibre offline map from a PMTiles file | FR-SHL-01..04 | Yes |
-| Family check-in by SMS: I am safe / I need help / I am at a shelter | FR-FAM-01..04 | Yes |
-| Evacuation checklist (Odia / Hindi / English), hard warnings on top, audio when clips are bundled | FR-CHK-01..04 | Yes |
-| Cyclone mode (dark UI, no background work) and battery tip at 30% | FR-BAT-01..02 | Yes |
-| Alert relay: GitHub Action → SACHET CAP → one JSON per district on GitHub Pages | PRD 5.2 | — |
+| Feature | Works without internet |
+| --- | --- |
+| **SOS**: big button, 3 choices, GPS (20 s timeout → last fix → saved landmark), ≤160-char SMS to family via the phone's SMS app, **and** broadcast to nearby phones | Yes |
+| **Nearby help (mesh)**: finds other RakshakMesh phones by Bluetooth/Wi-Fi automatically — no data, SIM or tower. Share SOS, text, voice notes, photos, videos. Messages hop phone-to-phone. Runs in background; loud alarm on nearby SOS; a phone with signal can forward an SOS by SMS | Yes |
+| **Offline map of all Odisha** (OpenStreetMap, bundled in the APK) with cyclone shelters, hospitals, police stations and nearby SOS; tap a place for distance and a compass arrow | Yes |
+| **Family check-in**: I am safe / at a shelter / need help — SMS + mesh | Yes |
+| **Official alerts** for your district (IMD / NDMA SACHET), saved for offline use, also passed between phones over the mesh; built-in safety guide | Saved copy + guide |
+| Calls to 112 / 1070 / 1077, evacuation checklist (read aloud), outbox with honest states, cyclone (battery) mode, Odia / Hindi / English | Yes |
 
-Not in this build (P2): Nearby Connections relay, volunteer mode, resource requests, dashboard, AI
-alert summaries, Odia voice notes.
-
-**Permissions:** location (asked when needed), internet, network state. No `SEND_SMS`,
-`READ_SMS`, `CALL_PHONE`, Bluetooth or background location. SMS is sent through the phone's own
-SMS app (`ACTION_SENDTO`); calls through the dialer (`ACTION_DIAL`).
+**Permissions:** location, nearby devices (Bluetooth/Wi-Fi), notifications, microphone, internet.
+Never: `SEND_SMS`, `READ_SMS`, `CALL_PHONE`, background location.
 
 ## Layout
 
@@ -32,7 +26,9 @@ core/    Plain Kotlin logic, no Android: SMS builder, distance/direction, neares
          shelter CSV, alert feed parsing, staleness, outbox states. Unit-tested.
 app/     Android app (Kotlin, Jetpack Compose, Room, WorkManager, MapLibre). minSdk 26.
 relay/   SACHET → per-district JSON script (Python stdlib) + tests.
-tools/   generate_audio.py: build-time Odia audio with Sarvam Bulbul.
+tools/   build_map_data.sh + osm_places.py: build the bundled Odisha map and places (CI).
+         strings_source.py: source of all en/or/hi UI text (regenerates res/values*/strings.xml).
+         generate_audio.py: optional build-time Odia audio with Sarvam Bulbul.
 docs/    PRD, data guide, acceptance test log, translation review.
 ```
 
@@ -47,17 +43,22 @@ cd relay && python3 -m unittest      # relay tests
 GitHub Actions (`.github/workflows/android.yml`) runs the tests, builds the debug APK, runs lint,
 checks the APK for API keys (AT-18) and forbidden permissions, and uploads the APK as an artifact.
 
-## Before a pilot
+## Releases
 
-1. **Turn on the alert relay:** repo Settings → Pages → Source: *GitHub Actions*, then run the
-   *Alert relay* workflow once. The app's default relay address is
-   `https://sameerrealengineer.github.io/Rakshakmesh` (changeable in Settings).
-2. **Add verified shelters** to `app/src/main/assets/shelters.csv` — it ships empty. See
-   [docs/DATA.md](docs/DATA.md).
-3. **Build the offline map** (PMTiles) for the pilot block and host it, or side-load it. See
-   [docs/DATA.md](docs/DATA.md).
-4. **Review translations:** Odia and Hindi text is a machine draft. See
-   [docs/TRANSLATION_REVIEW.md](docs/TRANSLATION_REVIEW.md). This blocks release.
-5. **Generate checklist audio** with `tools/generate_audio.py` (needs a Sarvam key, kept out of
-   the APK).
-6. **Run the acceptance tests** on 3 real phones: [docs/ACCEPTANCE_TESTS.md](docs/ACCEPTANCE_TESTS.md).
+Every push builds signed release APKs in GitHub Actions (artifact **RakshakMesh-release-apks**):
+`app-arm64-v8a-release.apk` for most phones, `app-universal-release.apk` for any phone.
+The offline map and places are rebuilt weekly from OpenStreetMap.
+
+To keep one signing key across releases (needed so updates install over old versions), add
+repository secrets `KEYSTORE_B64` (base64 of a .jks), `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
+
+Alerts come from the *Alert relay* workflow (every 30 min on `main`), which writes
+`alerts/<District>.json` to the `alerts-data` branch.
+
+## Before handing out
+
+1. Run the real-phone mesh test: [docs/MESH_TEST.md](docs/MESH_TEST.md).
+2. Odia / Hindi text is machine-drafted: have a native speaker review `tools/strings_source.py`
+   ([docs/TRANSLATION_REVIEW.md](docs/TRANSLATION_REVIEW.md)).
+3. Places come from OpenStreetMap and are labelled "not verified by government". Replace or add
+   an official OSDMA list in `app/src/main/assets/shelters.csv` format when available ([docs/DATA.md](docs/DATA.md)).
