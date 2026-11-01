@@ -49,11 +49,12 @@ import org.rakshakmesh.ui.theme.SosRed
  * No tracking, no READ_SMS, no "missing" labels.
  */
 @Composable
-fun FamilyScreen(app: RakshakApp, onNeedHelp: () -> Unit) {
+fun FamilyScreen(app: RakshakApp, onNeedHelp: () -> Unit, onEditContacts: () -> Unit) {
     val scope = rememberCoroutineScope()
     val contacts by app.db.contacts().observeAll().collectAsStateWithLifecycle(emptyList())
     val family = contacts.filter { it.role == "family" }
     var result by remember { mutableStateOf<OutboxRepo.HandOff?>(null) }
+    var meshCount by remember { mutableStateOf<Int?>(null) }
 
     fun send(type: MessageType) = scope.launch {
         val profile = app.db.profile().get()
@@ -66,14 +67,20 @@ fun FamilyScreen(app: RakshakApp, onNeedHelp: () -> Unit) {
                 val fix = app.location.lastKnown()
                 location = fix?.let { LocationChooser.choose(null, it, profile?.landmark.orEmpty(), now) }
                 val shelter = fix?.let { f ->
-                    NearestShelters.find(f.lat, f.lon, app.db.shelters().all().map { it.toRecord() }, limit = 1, maxKm = 2.0).firstOrNull()
+                    NearestShelters.find(
+                        f.lat, f.lon, app.db.shelters().all().map { it.toRecord() }, limit = 1, maxKm = 2.0,
+                        types = setOf(org.rakshakmesh.core.PlaceType.CYCLONE_SHELTER, org.rakshakmesh.core.PlaceType.FLOOD_SHELTER),
+                    ).firstOrNull()
                 }
                 SmsBodyBuilder.atShelter(name, shelter?.shelter?.name, now)
             }
             else -> SmsBodyBuilder.safe(name, now)
         }
         val saved = app.outbox.save(type, body, family.map { it.phone }, location)
-        result = app.outbox.handToSmsApp(saved.id)
+        // Also tell nearby phones over the offline mesh; they pass it on.
+        val fix = location?.fixOrNull ?: app.location.lastKnown()
+        meshCount = app.mesh.sendOwn(org.rakshakmesh.core.mesh.PacketType.SAFE, body, fix?.lat, fix?.lon)
+        result = if (family.isEmpty()) OutboxRepo.HandOff.NO_RECIPIENTS else app.outbox.handToSmsApp(saved.id)
     }
 
     Column(
@@ -84,7 +91,9 @@ fun FamilyScreen(app: RakshakApp, onNeedHelp: () -> Unit) {
         Text(stringResource(R.string.family_note), style = MaterialTheme.typography.bodyLarge)
 
         if (family.isEmpty()) {
-            InfoCard(stringResource(R.string.family_no_contacts), color = Color(0xFFFFE0B2))
+            InfoCard(stringResource(R.string.family_no_contacts), color = Color(0xFFFFE0B2)) {
+                androidx.compose.material3.OutlinedButton(onClick = onEditContacts) { Text(stringResource(R.string.family_add_contacts)) }
+            }
         } else {
             Text(
                 stringResource(R.string.family_recipients, family.joinToString(", ") { it.label.ifBlank { it.phone } }),
@@ -92,8 +101,8 @@ fun FamilyScreen(app: RakshakApp, onNeedHelp: () -> Unit) {
             )
         }
 
-        BigAction(stringResource(R.string.family_safe), Icons.Filled.CheckCircle, SafeGreen, enabled = family.isNotEmpty()) { send(MessageType.SAFE) }
-        BigAction(stringResource(R.string.family_shelter), Icons.Filled.HolidayVillage, MaterialTheme.colorScheme.secondary, enabled = family.isNotEmpty()) { send(MessageType.AT_SHELTER) }
+        BigAction(stringResource(R.string.family_safe), Icons.Filled.CheckCircle, SafeGreen, enabled = true) { send(MessageType.SAFE) }
+        BigAction(stringResource(R.string.family_shelter), Icons.Filled.HolidayVillage, MaterialTheme.colorScheme.secondary, enabled = true) { send(MessageType.AT_SHELTER) }
         BigAction(stringResource(R.string.family_help), Icons.Filled.Warning, SosRed, enabled = true, onClick = onNeedHelp)
 
         result?.let { r ->
@@ -103,7 +112,10 @@ fun FamilyScreen(app: RakshakApp, onNeedHelp: () -> Unit) {
                 OutboxRepo.HandOff.NO_RECIPIENTS -> stringResource(R.string.family_no_contacts)
                 OutboxRepo.HandOff.NO_SMS_APP -> stringResource(R.string.sos_no_sms_app)
             }
-            InfoCard(stringResource(R.string.sos_saved) + "\n" + msg)
+            val meshLine = meshCount?.let {
+                if (it > 0) stringResource(R.string.mesh_sent_to, it) else stringResource(R.string.mesh_sent_later)
+            }.orEmpty()
+            InfoCard(listOf(stringResource(R.string.sos_saved), meshLine, msg).filter { it.isNotBlank() }.joinToString("\n"))
         }
     }
 }

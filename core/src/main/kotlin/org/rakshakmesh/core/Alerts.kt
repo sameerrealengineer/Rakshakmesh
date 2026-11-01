@@ -12,6 +12,8 @@ data class DistrictFeed(
     val district: String,
     val fetchedAt: String,
     val alerts: List<FeedAlert> = emptyList(),
+    /** "ok", or "source_unavailable" when the relay could not read the official feed. */
+    val status: String? = null,
 )
 
 @Serializable

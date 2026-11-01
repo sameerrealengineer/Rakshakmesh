@@ -260,13 +260,14 @@ def build(feeds: list[str], fetch: Fetcher, now: dt.datetime) -> tuple[dict[str,
     return per_district, errors
 
 
-def write_site(out_dir: str, per_district: dict[str, list[dict]], now: dt.datetime, errors: list[str]) -> None:
+def write_site(out_dir: str, per_district: dict[str, list[dict]], now: dt.datetime, errors: list[str],
+               status: str = "ok") -> None:
     alerts_dir = os.path.join(out_dir, "alerts")
     os.makedirs(alerts_dir, exist_ok=True)
     fetched = iso(now)
-    index = {"fetchedAt": fetched, "source": "NDMA SACHET CAP", "districts": {}, "errors": len(errors)}
+    index = {"fetchedAt": fetched, "source": "NDMA SACHET CAP", "status": status, "districts": {}, "errors": len(errors)}
     for d, alerts in per_district.items():
-        doc = {"district": d, "fetchedAt": fetched, "source": "SACHET", "alerts": alerts}
+        doc = {"district": d, "fetchedAt": fetched, "source": "SACHET", "status": status, "alerts": alerts}
         with open(os.path.join(alerts_dir, f"{d}.json"), "w", encoding="utf-8") as f:
             json.dump(doc, f, ensure_ascii=False, separators=(",", ":"))
         index["districts"][d] = {
@@ -295,10 +296,15 @@ def main(argv: list[str] | None = None) -> int:
         print("WARN", e, file=sys.stderr)
     total_links_failed = all(e.startswith("feed ") for e in errors) and len(errors) == len(feeds)
     if total_links_failed:
-        # Do not publish an empty "fresh" file when every feed failed: the app would wrongly
-        # show "no alerts, updated just now". Keep the previous deployment instead.
-        print("ERROR: all feeds failed; not writing output", file=sys.stderr)
-        return 1
+        # Never claim "no alerts, updated just now" when the official feed could not be read.
+        # Keep the last good files; if there are none yet, write files that say the source is
+        # unavailable, so the app shows a clear message instead of a missing-file error.
+        if os.path.exists(os.path.join(args.out, "alerts", "index.json")):
+            print("WARN: all feeds failed; keeping previous files", file=sys.stderr)
+            return 0
+        print("WARN: all feeds failed; writing source_unavailable files", file=sys.stderr)
+        write_site(args.out, {d: [] for d in DISTRICTS}, now, errors, status="source_unavailable")
+        return 0
     write_site(args.out, per_district, now, errors)
     active = {d: len(a) for d, a in per_district.items() if a}
     print(f"OK: {sum(active.values())} district-alerts across {len(active)} districts: {active}")

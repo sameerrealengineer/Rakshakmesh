@@ -23,39 +23,87 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 90
+    outputs:
+      mapkey: ${{ steps.mapkey.outputs.key }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Core tests, debug APK, lint
-        run: ./gradlew --stacktrace :core:test :app:assembleDebug :app:lintDebug
+
+      # ---- Offline map + places (OpenStreetMap), rebuilt weekly, cached in between.
+      - id: mapkey
+        run: echo "key=mapdata-v1-$(date -u +%G-%V)-${{ hashFiles('tools/build_map_data.sh', 'tools/osm_places.py') }}" >> "$GITHUB_OUTPUT"
+      - id: mapcache
+        uses: actions/cache@v4
+        with:
+          key: ${{ steps.mapkey.outputs.key }}
+          restore-keys: mapdata-v1-
+          path: |
+            app/src/main/assets/map
+            app/src/main/assets/shelters.csv
+      - name: Build offline map and places
+        if: steps.mapcache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq osmium-tool
+          tools/build_map_data.sh
+          rm -rf .mapwork
+      - name: Show bundled data
+        run: |
+          ls -la app/src/main/assets/map
+          du -sh app/src/main/assets/map
+          echo "Places: $(grep -vc '^#' app/src/main/assets/shelters.csv)"
+          cut -d, -f10 app/src/main/assets/shelters.csv | sort | uniq -c
+
+      # ---- Signing: repository secrets if present, otherwise the CI debug key.
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "RM_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No KEYSTORE_B64 secret: release APK is signed with a temporary key. Add KEYSTORE_B64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD secrets so future updates install over this one."
+          fi
+
+      - name: Core tests
+        run: ./gradlew --stacktrace :core:test
+      - name: Release APKs
+        env:
+          RM_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          RM_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          RM_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew --stacktrace :app:assembleRelease
+      - name: Debug APK and lint
+        run: ./gradlew --stacktrace :app:assembleDebug :app:lintDebug
+
       - name: "AT-18: no API keys inside the APK"
         run: |
           set -e
-          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
-          mkdir -p /tmp/apk && unzip -q -o "$APK" -d /tmp/apk
-          # Google API keys, OpenAI/Anthropic-style secrets, Sarvam subscription header with a value.
-          if grep -raEo 'AIza[0-9A-Za-z_-]{35}|sk-[A-Za-z0-9_-]{20,}|api-subscription-key[^a-z]{0,4}[A-Za-z0-9_-]{16,}' /tmp/apk; then
-            echo "::error::Possible API key found inside the APK"; exit 1
-          fi
-          echo "No API keys found in $APK ($(du -h "$APK" | cut -f1))"
-      - name: "Permissions check: no SEND_SMS / READ_SMS / CALL_PHONE / background location"
+          for APK in app/build/outputs/apk/release/*.apk; do
+            rm -rf /tmp/apk && mkdir -p /tmp/apk && unzip -q -o "$APK" -x 'assets/map/*' -d /tmp/apk
+            if grep -raEo 'AIza[0-9A-Za-z_-]{35}|sk-[A-Za-z0-9_-]{20,}|api-subscription-key[^a-z]{0,4}[A-Za-z0-9_-]{16,}' /tmp/apk; then
+              echo "::error::Possible API key found inside $APK"; exit 1
+            fi
+            echo "OK $(basename "$APK") $(du -h "$APK" | cut -f1)"
+          done
+      - name: "Permissions check: no SMS read/send, calls or background location"
         run: |
-          MANIFEST=app/build/intermediates/merged_manifests/debug/processDebugManifest/AndroidManifest.xml
-          [ -f "$MANIFEST" ] || MANIFEST=$(find app/build/intermediates -name AndroidManifest.xml -path '*merged_manifest*' | head -1)
+          MANIFEST=$(find app/build/intermediates -name AndroidManifest.xml -path '*merged_manifest*release*' | head -1)
+          echo "$MANIFEST"
+          grep -o 'uses-permission[^>]*name="[^"]*"' "$MANIFEST" | sed 's/.*name=//' | sort -u
           if grep -E 'permission.(SEND_SMS|READ_SMS|RECEIVE_SMS|CALL_PHONE|ACCESS_BACKGROUND_LOCATION)"' "$MANIFEST"; then
             echo "::error::Forbidden permission in merged manifest"; exit 1
           fi
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: rakshakmesh-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: ignore
+          name: RakshakMesh-release-apks
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -63,4 +111,50 @@ jobs:
           path: |
             app/build/reports/
             core/build/reports/
+          if-no-files-found: ignore
+
+  emulator-tests:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [30, 34]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/cache/restore@v4
+        with:
+          key: ${{ needs.build.outputs.mapkey }}
+          restore-keys: mapdata-v1-
+          fail-on-cache-miss: true
+          path: |
+            app/src/main/assets/map
+            app/src/main/assets/shelters.csv
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build test APKs
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Run UI tests on emulator (API ${{ matrix.api }})
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: ./gradlew :app:connectedDebugAndroidTest
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-test-report-api${{ matrix.api }}
+          path: app/build/reports/androidTests/
           if-no-files-found: ignore

@@ -144,6 +144,15 @@ class ShelterTest {
         assertEquals(listOf(4, 5), r.rejectedLines)
     }
 
+    @Test fun typeFilterAndCommunityFlag() {
+        val h = rec("h", 20.01, 85.0).copy(type = "hospital", source = "OpenStreetMap")
+        val list = listOf(rec("s", 20.02, 85.0), h)
+        assertEquals(listOf("h"), NearestShelters.find(20.0, 85.0, list, types = setOf(PlaceType.HOSPITAL)).map { it.shelter.id })
+        assertEquals(listOf("s"), NearestShelters.find(20.0, 85.0, list, types = setOf(PlaceType.CYCLONE_SHELTER)).map { it.shelter.id })
+        assertTrue(h.isCommunityData)
+        assertEquals(PlaceType.CYCLONE_SHELTER, PlaceType.parse("cyclone"))
+    }
+
     @Test fun headerOnlyCsvIsEmpty() {
         val r = ShelterCsv.parse(ShelterCsv.HEADER.joinToString(","))
         assertTrue(r.shelters.isEmpty())

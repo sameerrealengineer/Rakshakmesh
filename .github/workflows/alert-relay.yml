@@ -1,8 +1,9 @@
-name: Alert relay (SACHET -> GitHub Pages)
+name: Alert relay (SACHET -> alerts-data branch)
 
-# Builds one small JSON file per Odisha district from NDMA SACHET CAP alerts and publishes it on
-# GitHub Pages, where the app downloads it. Setup: repo Settings -> Pages -> Source: GitHub Actions.
-# Scheduled runs only happen on the default branch.
+# Every 30 minutes: read NDMA SACHET CAP alerts, keep Odisha, and write one small JSON file per
+# district to the `alerts-data` branch. The app downloads
+#   https://raw.githubusercontent.com/<owner>/<repo>/alerts-data/alerts/<District>.json
+# No GitHub Pages or other setup needed. Scheduled runs happen only on the default branch.
 
 on:
   schedule:
@@ -10,9 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: alert-relay
@@ -22,9 +21,6 @@ jobs:
   relay:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,14 +29,27 @@ jobs:
       - name: Tests
         working-directory: relay
         run: python -m unittest
+      - name: Check out previous data
+        run: |
+          if git ls-remote --exit-code --heads origin alerts-data >/dev/null 2>&1; then
+            git fetch --depth 1 origin alerts-data
+            mkdir data && git --work-tree=data checkout origin/alerts-data -- . && git reset -q
+          else
+            mkdir data
+          fi
       - name: Fetch SACHET and build district files
         # Optional repo variable SACHET_FEEDS: space-separated RSS URLs to use instead of the default.
         env:
           SACHET_FEEDS: ${{ vars.SACHET_FEEDS }}
-        run: python relay/fetch_sachet.py --out site
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-      - id: deploy
-        uses: actions/deploy-pages@v4
+        run: python relay/fetch_sachet.py --out data
+      - name: Publish to alerts-data branch
+        working-directory: data
+        run: |
+          # One commit only (orphan), so the branch stays tiny no matter how often this runs.
+          rm -rf .git
+          git init -q -b alerts-data
+          git config user.name "rakshakmesh-relay"
+          git config user.email "relay@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Alerts $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:alerts-data

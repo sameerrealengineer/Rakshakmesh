@@ -14,24 +14,53 @@ android {
         applicationId = "org.rakshakmesh"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "2.0.0-p1"
+        versionCode = 3
+        versionName = "2.1.0"
         // Base URL of the alert relay (GitHub Pages). Changeable in Settings.
-        buildConfigField("String", "DEFAULT_RELAY_URL", "\"https://sameerrealengineer.github.io/Rakshakmesh\"")
+        buildConfigField("String", "DEFAULT_RELAY_URL", "\"https://raw.githubusercontent.com/sameerrealengineer/Rakshakmesh/alerts-data/alerts\"")
         vectorDrawables { useSupportLibrary = true }
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Only ship the three languages we support; keeps the APK small.
         @Suppress("DEPRECATION")
         resourceConfigurations += listOf("en", "or", "hi")
     }
 
 
+    // Release signing comes from the environment (CI secrets or a CI-generated key).
+    val ksPath = System.getenv("RM_KEYSTORE_PATH")
+    signingConfigs {
+        if (ksPath != null) {
+            create("release") {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("RM_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RM_KEY_ALIAS") ?: "rakshakmesh"
+                keyPassword = System.getenv("RM_KEY_PASSWORD") ?: System.getenv("RM_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = if (ksPath != null) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
     }
+
+    // One small APK for most phones (arm64) plus a universal one for everything else.
+    splits {
+        abi {
+            // Only for release builds; debug/test builds stay a single APK.
+            isEnable = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+
+    // The bundled map is already compressed; storing it uncompressed lets us copy it fast.
+    androidResources { noCompress += listOf("pmtiles", "pbf") }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -82,7 +111,15 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("com.google.android.gms:play-services-nearby:19.3.0")
     implementation("org.maplibre.gl:android-sdk:11.13.5")
 
     testImplementation("junit:junit:4.13.2")
+
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

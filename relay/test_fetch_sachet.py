@@ -70,6 +70,17 @@ class RelayTest(unittest.TestCase):
         # "puri" must not match inside other words
         self.assertEqual(fs.match_districts("Jaipur, Rajasthan", []), set())
 
+    def test_all_feeds_failing_writes_unavailable_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            import unittest.mock as um
+            with um.patch.object(fs, "http_get", side_effect=IOError("down")):
+                self.assertEqual(fs.main(["--out", d, "--feed", "x"]), 0)
+                doc = json.loads(pathlib.Path(d, "alerts", "Puri.json").read_text(encoding="utf-8"))
+                self.assertEqual(doc["status"], "source_unavailable")
+                before = pathlib.Path(d, "alerts", "index.json").read_text()
+                self.assertEqual(fs.main(["--out", d, "--feed", "x"]), 0)  # keeps old files
+                self.assertEqual(before, pathlib.Path(d, "alerts", "index.json").read_text())
+
     def test_all_feeds_failing_returns_error(self):
         def boom(url):
             raise IOError("down")

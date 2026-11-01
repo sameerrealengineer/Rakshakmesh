@@ -50,7 +50,7 @@ fun ChecklistScreen(app: RakshakApp, onBack: () -> Unit) {
     val items by app.db.checklist().observeAll().collectAsStateWithLifecycle(emptyList())
     val lang = currentLang()
     val player = remember { AudioPlayer(ctx) }
-    DisposableEffect(Unit) { onDispose { player.release() } }
+    DisposableEffect(Unit) { onDispose { player.shutdown() } }
 
     fun text(i: ChecklistItem) = when (lang) {
         "or" -> i.textOr
@@ -69,7 +69,7 @@ fun ChecklistScreen(app: RakshakApp, onBack: () -> Unit) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Filled.Warning, contentDescription = null, tint = SosRed)
                             Text(text(w), Modifier.weight(1f).padding(start = 12.dp), fontWeight = FontWeight.SemiBold)
-                            AudioButton(player, w.id, lang)
+                            AudioButton(player, w.id, lang, text(w))
                         }
                     }
                 }
@@ -82,7 +82,7 @@ fun ChecklistScreen(app: RakshakApp, onBack: () -> Unit) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Checkbox(checked = i.done, onCheckedChange = { c -> scope.launch { app.db.checklist().setDone(i.id, c) } })
                         Text(text(i), Modifier.weight(1f))
-                        AudioButton(player, i.id, lang)
+                        AudioButton(player, i.id, lang, text(i))
                     }
                 }
             }
@@ -95,9 +95,10 @@ fun ChecklistScreen(app: RakshakApp, onBack: () -> Unit) {
 }
 
 @Composable
-private fun AudioButton(player: AudioPlayer, id: String, lang: String) {
-    val path = listOf("mp3", "wav").map { "audio/${id}_$lang.$it" }.firstOrNull(player::exists) ?: return
-    IconButton(onClick = { player.play(path) }) {
+private fun AudioButton(player: AudioPlayer, id: String, lang: String, text: String) {
+    val path = listOf("mp3", "wav").map { "audio/${id}_$lang.$it" }.firstOrNull(player::exists)
+    // Recorded clip if bundled; otherwise the phone's own offline voice reads the text.
+    IconButton(onClick = { if (path != null) player.play(path) else player.speak(text, lang) }) {
         Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = stringResource(R.string.play_audio))
     }
 }
@@ -105,6 +106,35 @@ private fun AudioButton(player: AudioPlayer, id: String, lang: String) {
 /** Plays pre-recorded clips bundled at build time (Sarvam Bulbul, PRD 7.1 A1). Works offline. */
 private class AudioPlayer(private val context: Context) {
     private var mp: MediaPlayer? = null
+    private var tts: android.speech.tts.TextToSpeech? = null
+    private var ttsReady = false
+    private var pending: Pair<String, String>? = null
+
+    fun speak(text: String, lang: String) {
+        release()
+        val engine = tts
+        if (engine == null) {
+            pending = text to lang
+            tts = android.speech.tts.TextToSpeech(context) { status ->
+                ttsReady = status == android.speech.tts.TextToSpeech.SUCCESS
+                pending?.let { (t, l) -> if (ttsReady) say(t, l) }
+                pending = null
+            }
+        } else if (ttsReady) {
+            say(text, lang)
+        }
+    }
+
+    private fun say(text: String, lang: String) {
+        val engine = tts ?: return
+        // Try the chosen language, then Hindi, then English: Odia voices are not on every phone.
+        val candidates = listOf(java.util.Locale(lang, "IN"), java.util.Locale("hi", "IN"), java.util.Locale.ENGLISH)
+        val ok = candidates.firstOrNull {
+            engine.isLanguageAvailable(it) >= android.speech.tts.TextToSpeech.LANG_AVAILABLE
+        }
+        if (ok != null) engine.language = ok
+        engine.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "checklist")
+    }
     private val bundled: Set<String> = runCatching { context.assets.list("audio")?.toSet() }.getOrNull().orEmpty()
 
     fun exists(path: String) = path.removePrefix("audio/") in bundled
@@ -125,5 +155,12 @@ private class AudioPlayer(private val context: Context) {
     fun release() {
         mp?.release()
         mp = null
+        tts?.stop()
+    }
+
+    fun shutdown() {
+        release()
+        tts?.shutdown()
+        tts = null
     }
 }

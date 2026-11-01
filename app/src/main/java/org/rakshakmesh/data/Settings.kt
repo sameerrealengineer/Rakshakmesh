@@ -22,6 +22,12 @@ data class AppSettings(
     /** Last successful alert fetch for the current district (epoch ms), 0 = never. */
     val lastAlertFetch: Long = 0,
     val lastAlertError: String? = null,
+    /** Relay said the official source could not be read on its last run. */
+    val alertSourceDown: Boolean = false,
+    val meshEnabled: Boolean = true,
+    /** Random id for this phone on the mesh. Not linked to any person or SIM. */
+    val deviceId: String = "",
+    val seededVersion: Int = 0,
 )
 
 class SettingsStore(private val context: Context) {
@@ -32,6 +38,10 @@ class SettingsStore(private val context: Context) {
         val map = stringPreferencesKey("map_url")
         val lastFetch = longPreferencesKey("last_alert_fetch")
         val lastError = stringPreferencesKey("last_alert_error")
+        val sourceDown = booleanPreferencesKey("alert_source_down")
+        val mesh = booleanPreferencesKey("mesh_enabled")
+        val deviceId = stringPreferencesKey("device_id")
+        val seeded = androidx.datastore.preferences.core.intPreferencesKey("seeded_version")
     }
 
     val flow: Flow<AppSettings> = context.dataStore.data.map { it.toSettings() }
@@ -41,11 +51,27 @@ class SettingsStore(private val context: Context) {
     private fun Preferences.toSettings() = AppSettings(
         onboarded = this[K.onboarded] ?: false,
         cycloneMode = this[K.cyclone] ?: false,
-        relayUrl = this[K.relay]?.takeIf { it.isNotBlank() } ?: BuildConfig.DEFAULT_RELAY_URL,
+        relayUrl = this[K.relay]?.takeIf { it.isNotBlank() && "github.io" !in it } ?: BuildConfig.DEFAULT_RELAY_URL,
         mapUrl = this[K.map] ?: "",
         lastAlertFetch = this[K.lastFetch] ?: 0,
         lastAlertError = this[K.lastError],
+        alertSourceDown = this[K.sourceDown] ?: false,
+        meshEnabled = this[K.mesh] ?: true,
+        deviceId = this[K.deviceId] ?: "",
+        seededVersion = this[K.seeded] ?: 0,
     )
+
+    suspend fun setMeshEnabled(v: Boolean) = context.dataStore.edit { it[K.mesh] = v }
+    suspend fun setSeededVersion(v: Int) = context.dataStore.edit { it[K.seeded] = v }
+    suspend fun setSourceDown(v: Boolean) = context.dataStore.edit { it[K.sourceDown] = v }
+
+    /** Stable random id for this phone, created on first use. */
+    suspend fun deviceId(): String {
+        get().deviceId.takeIf { it.isNotBlank() }?.let { return it }
+        val id = java.util.UUID.randomUUID().toString().take(8)
+        context.dataStore.edit { if (it[K.deviceId].isNullOrBlank()) it[K.deviceId] = id }
+        return get().deviceId
+    }
 
     suspend fun setOnboarded(v: Boolean) = context.dataStore.edit { it[K.onboarded] = v }
     suspend fun setCycloneMode(v: Boolean) = context.dataStore.edit { it[K.cyclone] = v }

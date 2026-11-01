@@ -9,3 +9,7 @@ captures/
 relay/__pycache__/
 site/
 *.apk
+
+# Built in CI by tools/build_map_data.sh
+app/src/main/assets/map/
+.mapwork/

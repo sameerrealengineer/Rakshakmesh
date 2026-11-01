@@ -74,6 +74,8 @@ data class AlertCache(
     val issuedAt: Long?,
     val validUntil: Long?,
     val fetchedAt: Long,
+    /** Received from a nearby phone over the mesh, not downloaded by this phone. */
+    val viaMesh: Boolean = false,
 )
 
 @Entity
@@ -114,6 +116,65 @@ data class ChecklistItem(
     /** Hard warnings are shown at the top and cannot be ticked (FR-CHK-03). */
     val isWarning: Boolean = false,
 )
+
+/** A message sent or received over the offline phone-to-phone mesh. */
+@Entity
+data class MeshMessage(
+    @PrimaryKey val id: String,
+    /** org.rakshakmesh.core.mesh.PacketType name */
+    val type: String,
+    val originId: String,
+    val originName: String,
+    val createdAt: Long,
+    val expiresAt: Long,
+    val hops: Int,
+    val maxHops: Int,
+    val lat: Double?,
+    val lon: Double?,
+    val accuracyM: Float?,
+    val body: String,
+    val fileName: String?,
+    val mime: String?,
+    val size: Long?,
+    val sha256: String?,
+    /** Absolute path of the media file on this phone, if any. */
+    val localPath: String?,
+    val outgoing: Boolean,
+    val receivedAt: Long,
+    /** How many nearby phones this phone handed it to. */
+    val sharedWith: Int = 0,
+)
+
+@Dao
+interface MeshDao {
+    @Query("SELECT * FROM MeshMessage WHERE type != 'HELLO' ORDER BY receivedAt DESC LIMIT 500")
+    fun observeFeed(): Flow<List<MeshMessage>>
+
+    @Query("SELECT * FROM MeshMessage WHERE type = 'SOS' AND expiresAt > :now ORDER BY receivedAt DESC")
+    fun observeActiveSos(now: Long): Flow<List<MeshMessage>>
+
+    @Query("SELECT * FROM MeshMessage WHERE id = :id")
+    suspend fun get(id: String): MeshMessage?
+
+    @Query("SELECT id FROM MeshMessage")
+    suspend fun allIds(): List<String>
+
+    /** Packets worth handing to a phone that just connected (newest first). */
+    @Query("SELECT * FROM MeshMessage WHERE expiresAt > :now AND type IN ('SOS','SAFE','TEXT','ALERT','VOICE') ORDER BY createdAt DESC LIMIT 100")
+    suspend fun syncable(now: Long): List<MeshMessage>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(m: MeshMessage): Long
+
+    @Query("UPDATE MeshMessage SET sharedWith = sharedWith + :n WHERE id = :id")
+    suspend fun addShared(id: String, n: Int)
+
+    @Query("DELETE FROM MeshMessage WHERE expiresAt < :before")
+    suspend fun prune(before: Long)
+
+    @Query("DELETE FROM MeshMessage")
+    suspend fun clearAll()
+}
 
 @Dao
 interface ProfileDao {
@@ -241,8 +302,8 @@ interface ChecklistDao {
 }
 
 @Database(
-    entities = [Profile::class, Contact::class, OutboxMessage::class, AlertCache::class, Shelter::class, ChecklistItem::class],
-    version = 1,
+    entities = [Profile::class, Contact::class, OutboxMessage::class, AlertCache::class, Shelter::class, ChecklistItem::class, MeshMessage::class],
+    version = 2,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -252,9 +313,13 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun alerts(): AlertDao
     abstract fun shelters(): ShelterDao
     abstract fun checklist(): ChecklistDao
+    abstract fun mesh(): MeshDao
 
     companion object {
         fun build(context: Context): AppDatabase =
-            Room.databaseBuilder(context, AppDatabase::class.java, "rakshakmesh.db").build()
+            Room.databaseBuilder(context, AppDatabase::class.java, "rakshakmesh.db")
+                // Only test builds existed before v2; nothing to migrate.
+                .fallbackToDestructiveMigration(dropAllTables = true)
+                .build()
     }
 }

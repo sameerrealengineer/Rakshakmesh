@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -77,6 +78,7 @@ fun SosScreen(app: RakshakApp, onBack: () -> Unit, onOutbox: () -> Unit) {
     var elderly by remember { mutableIntStateOf(0) }
     var location by remember { mutableStateOf<SosLocation?>(null) }
     var result by remember { mutableStateOf<OutboxRepo.HandOff?>(null) }
+    var meshCount by remember { mutableStateOf<Int?>(null) }
     var sending by remember { mutableStateOf(false) }
     var hasPermission by remember { mutableStateOf(app.location.hasPermission()) }
     val fixReady = remember { CompletableDeferred<SosLocation>() }
@@ -135,12 +137,15 @@ fun SosScreen(app: RakshakApp, onBack: () -> Unit, onOutbox: () -> Unit) {
                             .filter { it.isNotBlank() }.joinToString(", ")
                         val body = SmsBodyBuilder.sos(k, people, elderly, loc, landmark, details, System.currentTimeMillis())
                         val saved = app.outbox.save(MessageType.SOS, body, app.outbox.recipients(), loc)
+                        // Offline mesh first: reaches nearby phones even with no tower at all.
+                        val fix = loc.fixOrNull
+                        meshCount = app.mesh.sendOwn(org.rakshakmesh.core.mesh.PacketType.SOS, body, fix?.lat, fix?.lon, fix?.accuracyM)
                         result = app.outbox.handToSmsApp(saved.id)
                         sending = false
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = SosRed, contentColor = Color.White),
-                modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).testTag("sos_send"),
             ) {
                 if (sending) {
                     CircularProgressIndicator(Modifier.size(24.dp), color = Color.White)
@@ -156,7 +161,10 @@ fun SosScreen(app: RakshakApp, onBack: () -> Unit, onOutbox: () -> Unit) {
                     OutboxRepo.HandOff.NO_RECIPIENTS -> stringResource(R.string.sos_no_recipients)
                     OutboxRepo.HandOff.NO_SMS_APP -> stringResource(R.string.sos_no_sms_app)
                 }
-                InfoCard(stringResource(R.string.sos_saved) + "\n" + msg, color = Color(0xFFFFE0B2)) {
+                val meshLine = meshCount?.let {
+                    if (it > 0) stringResource(R.string.mesh_sent_to, it) else stringResource(R.string.mesh_sent_later)
+                }.orEmpty()
+                InfoCard(listOf(stringResource(R.string.sos_saved), meshLine, msg).filter { it.isNotBlank() }.joinToString("\n"), color = Color(0xFFFFE0B2)) {
                     OutlinedButton(onClick = onOutbox) { Text(stringResource(R.string.open_outbox)) }
                 }
             }

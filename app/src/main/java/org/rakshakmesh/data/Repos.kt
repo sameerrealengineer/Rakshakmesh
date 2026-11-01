@@ -105,8 +105,18 @@ class AlertRepo(private val db: AppDatabase, private val settings: SettingsStore
             // The age shown to the user is the relay's fetch time, not ours: that is when
             // the official source was last read.
             settings.recordFetch(true, fetchedAt, null)
+            settings.setSourceDown(feed.status == "source_unavailable")
             rows.size
-        }.onFailure { settings.recordFetch(false, now, it.message ?: it.javaClass.simpleName) }
+        }.onFailure {
+            // Stored as a short code; the UI turns it into plain words (never a raw HTTP error).
+            val code = when {
+                it is java.net.UnknownHostException || it is java.net.ConnectException -> "offline"
+                it is java.net.SocketTimeoutException -> "timeout"
+                it.message?.startsWith("HTTP") == true -> "server"
+                else -> "other"
+            }
+            settings.recordFetch(false, now, code)
+        }
     }
 
     companion object {
@@ -137,9 +147,14 @@ private data class ChecklistJson(
 )
 
 /** Loads bundled shelters and checklist on first run, and again when the APK's content changes. */
-class Seeder(private val context: Context, private val db: AppDatabase) {
+class Seeder(private val context: Context, private val db: AppDatabase, private val settings: SettingsStore) {
     suspend fun seed() = withContext(Dispatchers.IO) {
-        seedShelters()
+        // Places list can be thousands of rows: reload only when the APK changes.
+        val version = org.rakshakmesh.BuildConfig.VERSION_CODE
+        if (settings.get().seededVersion != version || db.shelters().count() == 0) {
+            seedShelters()
+            settings.setSeededVersion(version)
+        }
         seedChecklist()
     }
 

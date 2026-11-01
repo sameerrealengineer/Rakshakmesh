@@ -1,6 +1,31 @@
 package org.rakshakmesh.core
 
-/** One shelter record. Only records with a [source] and [verifiedOn] are ever shown (PRD 5.4). */
+/** Kinds of safe places shown on the map and in lists. Stored as the CSV `type` text. */
+enum class PlaceType(val code: String) {
+    CYCLONE_SHELTER("cyclone_shelter"),
+    FLOOD_SHELTER("flood_shelter"),
+    HOSPITAL("hospital"),
+    POLICE("police"),
+    OTHER("other"),
+    ;
+
+    val isShelter: Boolean get() = this == CYCLONE_SHELTER || this == FLOOD_SHELTER
+
+    companion object {
+        fun parse(s: String): PlaceType = when (s.trim().lowercase()) {
+            "cyclone", "cyclone_shelter", "shelter", "mcs" -> CYCLONE_SHELTER
+            "flood", "flood_shelter" -> FLOOD_SHELTER
+            "hospital", "clinic", "health" -> HOSPITAL
+            "police" -> POLICE
+            else -> OTHER
+        }
+    }
+}
+
+/**
+ * One safe place. Every record must name its [source]; records without one are never shown.
+ * [verifiedOn] is the date the source was checked (for OpenStreetMap: the extract date).
+ */
 data class ShelterRecord(
     val id: String,
     val name: String,
@@ -15,7 +40,11 @@ data class ShelterRecord(
     val source: String,
     val verifiedOn: String,
 ) {
-    val isVerified: Boolean get() = source.isNotBlank() && verifiedOn.isNotBlank()
+    val isVerified: Boolean get() = source.isNotBlank()
+    val placeType: PlaceType get() = PlaceType.parse(type)
+
+    /** OpenStreetMap is community data, not a government list; the UI must say so. */
+    val isCommunityData: Boolean get() = source.contains("openstreetmap", ignoreCase = true) || source.equals("OSM", true)
 }
 
 data class NearbyShelter(
@@ -38,8 +67,10 @@ object NearestShelters {
         shelters: List<ShelterRecord>,
         limit: Int = 3,
         maxKm: Double = DEFAULT_MAX_KM,
+        types: Set<PlaceType>? = null,
     ): List<NearbyShelter> = shelters.asSequence()
         .filter { it.isVerified }
+        .filter { types == null || it.placeType in types }
         .map {
             NearbyShelter(
                 shelter = it,
