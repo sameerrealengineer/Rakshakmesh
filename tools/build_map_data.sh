@@ -49,9 +49,13 @@ for font in "Noto Sans Regular" "Noto Sans Medium"; do
   done
 done
 
-osmium tags-filter eastern.osm.pbf \
-  nwr/amenity=shelter,hospital,clinic,doctors,police,school,community_centre \
+# Cut to Odisha first, then keep safe-place tags plus every named feature: most cyclone shelters
+# in Odisha are only recognisable by their name ("Multipurpose Cyclone Shelter ...").
+osmium extract -b "$BOUNDS" eastern.osm.pbf -o odisha.osm.pbf --overwrite
+osmium tags-filter odisha.osm.pbf \
+  nwr/amenity=shelter,hospital,clinic,doctors,police \
   nwr/emergency=assembly_point nwr/building=shelter \
+  nwr/name nwr/name:en nwr/name:or \
   -o places.osm.pbf --overwrite
 osmium export places.osm.pbf -f geojsonseq --geometry-types=point,polygon \
   --attributes=type,id -o places.geojsonseq --overwrite

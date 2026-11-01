@@ -8,9 +8,11 @@ import json
 import re
 import sys
 
-SHELTER_NAME = re.compile(r"cyclone|flood|m\.?p\.?c\.?s\b|\bmcs\b|multi ?purpose|ବାତ୍ୟା|ବନ୍ୟା|आश्रय|shelter", re.I)
-CYCLONE_NAME = re.compile(r"cyclone|m\.?p\.?c\.?s\b|\bmcs\b|multi ?purpose|ବାତ୍ୟା", re.I)
-FLOOD_NAME = re.compile(r"flood|ବନ୍ୟା", re.I)
+SHELTER_NAME = re.compile(r"shelter|ashray|आश्रय|ଆଶ୍ରୟ", re.I)
+CYCLONE_NAME = re.compile(
+    r"cyclone|\bm\.?\s?p\.?\s?c\.?\s?s\b|\bm\.?c\.?s\b|multi[\s-]?purpose.{0,25}shelter|ବାତ୍ୟା|चक्रवात", re.I)
+FLOOD_NAME = re.compile(r"flood.{0,25}(shelter|ashray)|ବନ୍ୟା.{0,10}ଆଶ୍ରୟ|बाढ़.{0,10}आश्रय", re.I)
+NOT_A_SHELTER = re.compile(r"warning|office|centre for|research|control room|bus|road|street", re.I)
 HEADER = ["id", "name", "name_odia", "village", "block", "district", "lat", "lon", "capacity", "type", "source", "verified_on"]
 
 
@@ -39,12 +41,15 @@ def classify(tags):
     shelter_type = tags.get("shelter_type", "")
     if shelter_type in ("public_transport", "picnic_shelter", "field_shelter", "lean_to", "gazebo"):
         return None
-    if amenity == "shelter" or tags.get("building") == "shelter" or tags.get("emergency") == "assembly_point" or amenity in ("school", "community_centre"):
-        if FLOOD_NAME.search(name):
-            return "flood_shelter"
-        if CYCLONE_NAME.search(name) or (amenity == "shelter" and shelter_type in ("emergency", "disaster")):
-            return "cyclone_shelter"
-        if amenity == "shelter" and SHELTER_NAME.search(name):
+    if tags.get("highway") or tags.get("route") or tags.get("place") or tags.get("boundary"):
+        return None
+    # By name, whatever the other tags are (buildings, schools, community halls ...).
+    if FLOOD_NAME.search(name):
+        return "flood_shelter"
+    if CYCLONE_NAME.search(name) and (SHELTER_NAME.search(name) or not NOT_A_SHELTER.search(name)):
+        return "cyclone_shelter"
+    if amenity == "shelter" or tags.get("building") == "shelter" or tags.get("emergency") == "assembly_point":
+        if shelter_type in ("emergency", "disaster") or SHELTER_NAME.search(name):
             return "cyclone_shelter"
     return None
 
